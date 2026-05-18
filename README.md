@@ -48,6 +48,12 @@ python paper_bybit.py --profile moonshot
 
 Il profilo `moonshot` rischia 8% per trade, puo allocare fino al 75% della cassa per simbolo e usa un RR teorico 1:3. Il drawdown puo diventare molto piu pesante.
 
+Gli short sono supportati, ma sono disattivati di default perche nel backtest 3 mesi peggiorano il risultato. Puoi testarli cosi:
+
+```powershell
+python paper_bybit.py --profile moonshot --allow-short
+```
+
 Il profilo include anche freni di rischio:
 
 - rischio aperto totale massimo 12%;
@@ -99,6 +105,12 @@ Backtest del profilo aggressivo:
 
 ```powershell
 python backtest_bybit_paper.py --profile moonshot --start 2026-04-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_2026-04-18_2026-05-18.json
+```
+
+Backtest con short abilitati:
+
+```powershell
+python backtest_bybit_paper.py --profile moonshot --allow-short --start 2026-02-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_longshort_3m.json
 ```
 
 Esempio con parametri piu aggressivi:

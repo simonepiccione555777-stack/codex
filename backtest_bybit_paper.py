@@ -28,18 +28,27 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     raw_position = state["positions"].get(symbol)
     if raw_position:
         position = PaperPosition(**raw_position)
-        if candle.low <= position.stop:
+        if position.side == "LONG" and candle.low <= position.stop:
             close_position(state, position, position.stop, timestamp, "stop", args)
-            return f"{timestamp} {symbol} STOP {position.stop:.4f}"
-        if candle.high >= position.take_profit:
+            return f"{timestamp} {symbol} LONG STOP {position.stop:.4f}"
+        if position.side == "LONG" and candle.high >= position.take_profit:
             close_position(state, position, position.take_profit, timestamp, "take_profit", args)
-            return f"{timestamp} {symbol} TAKE_PROFIT {position.take_profit:.4f}"
-        if signal == "SELL":
+            return f"{timestamp} {symbol} LONG TAKE_PROFIT {position.take_profit:.4f}"
+        if position.side == "SHORT" and candle.high >= position.stop:
+            close_position(state, position, position.stop, timestamp, "stop", args)
+            return f"{timestamp} {symbol} SHORT STOP {position.stop:.4f}"
+        if position.side == "SHORT" and candle.low <= position.take_profit:
+            close_position(state, position, position.take_profit, timestamp, "take_profit", args)
+            return f"{timestamp} {symbol} SHORT TAKE_PROFIT {position.take_profit:.4f}"
+        if position.side == "LONG" and info["fast"] is not None and info["slow"] is not None and info["fast"] < info["slow"]:
             close_position(state, position, price, timestamp, "trend_exit", args)
-            return f"{timestamp} {symbol} TREND_EXIT {price:.4f}"
+            return f"{timestamp} {symbol} LONG TREND_EXIT {price:.4f}"
+        if position.side == "SHORT" and info["fast"] is not None and info["slow"] is not None and info["fast"] > info["slow"]:
+            close_position(state, position, price, timestamp, "trend_exit", args)
+            return f"{timestamp} {symbol} SHORT TREND_EXIT {price:.4f}"
         return None
 
-    if signal != "BUY" or atr_value is None:
+    if signal not in {"BUY", "SHORT"} or atr_value is None:
         return None
 
     if in_cooldown(risk_state, timestamp):
@@ -49,7 +58,8 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     if current_open_risk >= args.max_open_risk:
         return None
 
-    leverage = choose_leverage(info, args)
+    side = "LONG" if signal == "BUY" else "SHORT"
+    leverage = choose_leverage(info, args, side)
     effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
     correlated_count = sum(1 for open_symbol in state.get("positions", {}) if open_symbol.endswith(symbol[-4:]))
     if correlated_count > 0:
@@ -62,7 +72,7 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     risk_amount = state["cash"] * effective_risk
     stop_distance = atr_value * args.stop_atr
     quantity = min(risk_amount / stop_distance, available_notional / price) if stop_distance > 0 else 0
-    entry = price * (1 + args.slippage)
+    entry = price * (1 + args.slippage) if side == "LONG" else price * (1 - args.slippage)
     notional = quantity * entry
     margin = notional / leverage
     fee = notional * args.fee
@@ -74,17 +84,18 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     state["positions"][symbol] = asdict(
         PaperPosition(
             symbol=symbol,
+            side=side,
             quantity=quantity,
             entry=entry,
-            stop=entry - stop_distance,
-            take_profit=entry + atr_value * args.take_profit_atr,
+            stop=entry - stop_distance if side == "LONG" else entry + stop_distance,
+            take_profit=entry + atr_value * args.take_profit_atr if side == "LONG" else entry - atr_value * args.take_profit_atr,
             margin=margin,
             leverage=leverage,
             opened_at=timestamp,
             risk_fraction=effective_risk,
         )
     )
-    return f"{timestamp} {symbol} OPEN_LONG {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
+    return f"{timestamp} {symbol} OPEN_{side} {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
 
 
 def run_backtest(args: argparse.Namespace) -> dict:
@@ -146,6 +157,7 @@ def run_backtest(args: argparse.Namespace) -> dict:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backtest Bybit della stessa logica paper trading.")
     parser.add_argument("--profile", choices=["base", "moonshot"], default="base")
+    parser.add_argument("--allow-short", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"])
     parser.add_argument("--category", default="spot", choices=["spot", "linear", "inverse"])
     parser.add_argument("--interval", default="60")
@@ -176,6 +188,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--atr-period", type=int, default=14)
     parser.add_argument("--min-rsi", type=float, default=50)
     parser.add_argument("--max-rsi", type=float, default=72)
+    parser.add_argument("--short-min-rsi", type=float, default=28)
+    parser.add_argument("--short-max-rsi", type=float, default=50)
     parser.add_argument("--stop-atr", type=float, default=2.0)
     parser.add_argument("--take-profit-atr", type=float, default=4.0)
     parser.add_argument("--output", default="")

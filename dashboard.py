@@ -31,13 +31,14 @@ def estimate_equity(state: dict) -> float:
 
 def render_positions(positions: dict) -> str:
     if not positions:
-        return "<tr><td colspan=\"7\">Nessuna posizione aperta</td></tr>"
+        return "<tr><td colspan=\"8\">Nessuna posizione aperta</td></tr>"
 
     rows = []
     for symbol, position in sorted(positions.items()):
         rows.append(
             "<tr>"
             f"<td>{html.escape(symbol)}</td>"
+            f"<td>{html.escape(position.get('side', 'LONG'))}</td>"
             f"<td>{float(position['leverage']):.1f}x</td>"
             f"<td>{float(position['entry']):,.4f}</td>"
             f"<td>{float(position['stop']):,.4f}</td>"
@@ -207,7 +208,7 @@ def build_dashboard(state: dict, target: float) -> str:
     <section>
       <h2>Posizioni Aperte</h2>
       <table>
-        <thead><tr><th>Symbol</th><th>Leva</th><th>Entry</th><th>Stop</th><th>Take profit</th><th>Margine</th><th>Aperta</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>Lato</th><th>Leva</th><th>Entry</th><th>Stop</th><th>Take profit</th><th>Margine</th><th>Aperta</th></tr></thead>
         <tbody>{render_positions(positions)}</tbody>
       </table>
     </section>

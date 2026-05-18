@@ -20,6 +20,7 @@ class PaperPosition:
     margin: float
     leverage: float
     opened_at: str
+    side: str = "LONG"
     risk_fraction: float = 0.0
 
 
@@ -64,17 +65,20 @@ def latest_signal(candles, args: argparse.Namespace) -> tuple[str, dict]:
         return "WAIT", info
 
     crossed_up = fast[idx] > slow[idx] and fast[idx - 1] <= slow[idx - 1]
-    crossed_down = fast[idx] < slow[idx]
-    healthy_momentum = args.min_rsi <= strength[idx] <= args.max_rsi
+    crossed_down = fast[idx] < slow[idx] and fast[idx - 1] >= slow[idx - 1] if fast[idx - 1] and slow[idx - 1] else False
+    long_momentum = args.min_rsi <= strength[idx] <= args.max_rsi
+    short_momentum = args.short_min_rsi <= strength[idx] <= args.short_max_rsi
 
-    if crossed_up and healthy_momentum:
+    if crossed_up and long_momentum:
         return "BUY", info
+    if crossed_down and short_momentum and args.allow_short:
+        return "SHORT", info
     if crossed_down:
         return "SELL", info
     return "HOLD", info
 
 
-def choose_leverage(info: dict, args: argparse.Namespace) -> float:
+def choose_leverage(info: dict, args: argparse.Namespace, side: str = "LONG") -> float:
     if not args.adaptive_leverage:
         return args.leverage
 
@@ -87,8 +91,12 @@ def choose_leverage(info: dict, args: argparse.Namespace) -> float:
     if any(value is None for value in (rsi_value, atr_pct, fast_value, slow_value, price)):
         return args.min_leverage
 
-    trend_gap = max((fast_value - slow_value) / price, 0)
-    momentum_score = max(0.0, min((rsi_value - args.min_rsi) / max(args.max_rsi - args.min_rsi, 1), 1.0))
+    if side == "SHORT":
+        trend_gap = max((slow_value - fast_value) / price, 0)
+        momentum_score = max(0.0, min((args.short_max_rsi - rsi_value) / max(args.short_max_rsi - args.short_min_rsi, 1), 1.0))
+    else:
+        trend_gap = max((fast_value - slow_value) / price, 0)
+        momentum_score = max(0.0, min((rsi_value - args.min_rsi) / max(args.max_rsi - args.min_rsi, 1), 1.0))
     trend_score = max(0.0, min(trend_gap / args.strong_trend_gap, 1.0))
 
     if atr_pct >= args.high_volatility:
@@ -105,14 +113,18 @@ def choose_leverage(info: dict, args: argparse.Namespace) -> float:
 
 
 def close_position(state: dict, position: PaperPosition, price: float, timestamp: str, reason: str, args: argparse.Namespace) -> None:
-    exit_price = price * (1 - args.slippage)
+    exit_price = price * (1 - args.slippage) if position.side == "LONG" else price * (1 + args.slippage)
     gross = position.quantity * exit_price
     fee = gross * args.fee
-    pnl = position.quantity * (exit_price - position.entry) - fee
+    if position.side == "SHORT":
+        pnl = position.quantity * (position.entry - exit_price) - fee
+    else:
+        pnl = position.quantity * (exit_price - position.entry) - fee
     state["cash"] += position.margin + pnl
     state["trades"].append(
         {
             "symbol": position.symbol,
+            "side": position.side,
             "opened_at": position.opened_at,
             "closed_at": timestamp,
             "entry": position.entry,
@@ -176,18 +188,27 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     raw_position = state["positions"].get(symbol)
     if raw_position:
         position = PaperPosition(**raw_position)
-        if price <= position.stop:
+        if position.side == "LONG" and price <= position.stop:
             close_position(state, position, position.stop, timestamp, "stop", args)
             return f"{symbol}: chiusa per stop a {position.stop:.4f}."
-        if price >= position.take_profit:
+        if position.side == "LONG" and price >= position.take_profit:
             close_position(state, position, position.take_profit, timestamp, "take_profit", args)
             return f"{symbol}: chiusa per take profit a {position.take_profit:.4f}."
-        if signal == "SELL":
+        if position.side == "SHORT" and price >= position.stop:
+            close_position(state, position, position.stop, timestamp, "stop", args)
+            return f"{symbol}: SHORT chiusa per stop a {position.stop:.4f}."
+        if position.side == "SHORT" and price <= position.take_profit:
+            close_position(state, position, position.take_profit, timestamp, "take_profit", args)
+            return f"{symbol}: SHORT chiusa per take profit a {position.take_profit:.4f}."
+        if position.side == "LONG" and info["fast"] is not None and info["slow"] is not None and info["fast"] < info["slow"]:
             close_position(state, position, price, timestamp, "trend_exit", args)
-            return f"{symbol}: chiusa per uscita trend a {price:.4f}."
-        return f"{symbol}: posizione aperta, segnale {signal}, prezzo {price:.4f}."
+            return f"{symbol}: LONG chiusa per uscita trend a {price:.4f}."
+        if position.side == "SHORT" and info["fast"] is not None and info["slow"] is not None and info["fast"] > info["slow"]:
+            close_position(state, position, price, timestamp, "trend_exit", args)
+            return f"{symbol}: SHORT chiusa per uscita trend a {price:.4f}."
+        return f"{symbol}: posizione {position.side} aperta, segnale {signal}, prezzo {price:.4f}."
 
-    if signal != "BUY" or atr_value is None:
+    if signal not in {"BUY", "SHORT"} or atr_value is None:
         return f"{symbol}: nessuna apertura, segnale {signal}, prezzo {price:.4f}."
 
     if in_cooldown(risk_state, timestamp):
@@ -197,7 +218,8 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     if current_open_risk >= args.max_open_risk:
         return f"{symbol}: BUY ignorato, budget rischio aperto gia' pieno."
 
-    leverage = choose_leverage(info, args)
+    side = "LONG" if signal == "BUY" else "SHORT"
+    leverage = choose_leverage(info, args, side)
     effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
     if correlated_position_count(state, symbol) > 0:
         effective_risk *= args.correlated_risk_multiplier
@@ -209,7 +231,7 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     risk_amount = state["cash"] * effective_risk
     stop_distance = atr_value * args.stop_atr
     quantity = min(risk_amount / stop_distance, available_notional / price) if stop_distance > 0 else 0
-    entry = price * (1 + args.slippage)
+    entry = price * (1 + args.slippage) if side == "LONG" else price * (1 - args.slippage)
     notional = quantity * entry
     margin = notional / leverage
     fee = notional * args.fee
@@ -221,17 +243,18 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     state["positions"][symbol] = asdict(
         PaperPosition(
             symbol=symbol,
+            side=side,
             quantity=quantity,
             entry=entry,
-            stop=entry - stop_distance,
-            take_profit=entry + atr_value * args.take_profit_atr,
+            stop=entry - stop_distance if side == "LONG" else entry + stop_distance,
+            take_profit=entry + atr_value * args.take_profit_atr if side == "LONG" else entry - atr_value * args.take_profit_atr,
             margin=margin,
             leverage=leverage,
             opened_at=timestamp,
             risk_fraction=effective_risk,
         )
     )
-    return f"{symbol}: apertura paper LONG {leverage:.1f}x a {entry:.4f}, margine {margin:.2f} USDT."
+    return f"{symbol}: apertura paper {side} {leverage:.1f}x a {entry:.4f}, margine {margin:.2f} USDT."
 
 
 def portfolio_value(state: dict, prices: dict[str, float]) -> float:
@@ -239,7 +262,10 @@ def portfolio_value(state: dict, prices: dict[str, float]) -> float:
     for symbol, raw_position in state["positions"].items():
         position = PaperPosition(**raw_position)
         mark_price = prices.get(symbol, position.entry)
-        unrealized = position.quantity * (mark_price - position.entry)
+        if position.side == "SHORT":
+            unrealized = position.quantity * (position.entry - mark_price)
+        else:
+            unrealized = position.quantity * (mark_price - position.entry)
         value += position.margin + unrealized
     return value
 
@@ -247,6 +273,7 @@ def portfolio_value(state: dict, prices: dict[str, float]) -> float:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Paper trading locale su dati pubblici Bybit.")
     parser.add_argument("--profile", choices=["base", "moonshot"], default="base")
+    parser.add_argument("--allow-short", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"])
     parser.add_argument("--category", default="spot", choices=["spot", "linear", "inverse"])
     parser.add_argument("--interval", default="60", help="Intervallo Bybit: 15, 60, 240, D.")
@@ -276,6 +303,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--atr-period", type=int, default=14)
     parser.add_argument("--min-rsi", type=float, default=50)
     parser.add_argument("--max-rsi", type=float, default=72)
+    parser.add_argument("--short-min-rsi", type=float, default=28)
+    parser.add_argument("--short-max-rsi", type=float, default=50)
     parser.add_argument("--stop-atr", type=float, default=2.0)
     parser.add_argument("--take-profit-atr", type=float, default=4.0)
     return parser.parse_args()
