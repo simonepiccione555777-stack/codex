@@ -74,6 +74,12 @@ Poi lancia il backtest:
 python crypto_lab.py --csv data/BTCUSDT_60_bybit.csv --capital 100 --target 1000
 ```
 
+Oppure rigioca direttamente la logica del paper trader su BTCUSDT e ETHUSDT:
+
+```powershell
+python backtest_bybit_paper.py --start 2026-04-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_2026-04-18_2026-05-18.json
+```
+
 Esempio con parametri piu aggressivi:
 
 ```powershell

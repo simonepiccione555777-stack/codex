@@ -7,3 +7,4 @@ venv/
 data/*.csv
 paper_state/*.json
 dashboard.html
+runs/*.json
