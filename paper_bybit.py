@@ -83,7 +83,10 @@ def latest_signal(candles, args: argparse.Namespace) -> tuple[str, dict]:
     volume_ok = closed[idx].volume >= avg_volume * args.short_volume_multiplier
     bearish_structure = fast[idx] < slow[idx]
 
-    if crossed_down and short_momentum and breakdown and volume_ok and bearish_structure and args.allow_short:
+    close_position_in_range = (closed[idx].close - closed[idx].low) / (closed[idx].high - closed[idx].low) if closed[idx].high > closed[idx].low else 1.0
+    bearish_close = close_position_in_range <= args.short_max_close_position
+
+    if crossed_down and short_momentum and breakdown and volume_ok and bearish_structure and bearish_close and args.allow_short:
         return "SHORT", info
     if crossed_down:
         return "SELL", info
@@ -327,6 +330,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--short-breakdown-lookback", type=int, default=24)
     parser.add_argument("--volume-lookback", type=int, default=24)
     parser.add_argument("--short-volume-multiplier", type=float, default=1.15)
+    parser.add_argument("--short-max-close-position", type=float, default=0.60)
     parser.add_argument("--short-risk-multiplier", type=float, default=0.45)
     parser.add_argument("--short-correlated-risk-multiplier", type=float, default=0.25)
     parser.add_argument("--short-max-risk", type=float, default=0.025)
@@ -356,6 +360,7 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.short_breakdown_lookback = 24
         args.volume_lookback = 24
         args.short_volume_multiplier = 1.15
+        args.short_max_close_position = 0.60
         args.short_risk_multiplier = 0.45
         args.short_correlated_risk_multiplier = 0.25
         args.short_max_risk = 0.025

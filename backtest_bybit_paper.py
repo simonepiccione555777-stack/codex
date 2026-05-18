@@ -199,6 +199,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--short-breakdown-lookback", type=int, default=24)
     parser.add_argument("--volume-lookback", type=int, default=24)
     parser.add_argument("--short-volume-multiplier", type=float, default=1.15)
+    parser.add_argument("--short-max-close-position", type=float, default=0.60)
     parser.add_argument("--short-risk-multiplier", type=float, default=0.45)
     parser.add_argument("--short-correlated-risk-multiplier", type=float, default=0.25)
     parser.add_argument("--short-max-risk", type=float, default=0.025)
@@ -229,6 +230,7 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.short_breakdown_lookback = 24
         args.volume_lookback = 24
         args.short_volume_multiplier = 1.15
+        args.short_max_close_position = 0.60
         args.short_risk_multiplier = 0.45
         args.short_correlated_risk_multiplier = 0.25
         args.short_max_risk = 0.025
