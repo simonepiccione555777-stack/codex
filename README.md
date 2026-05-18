@@ -40,6 +40,14 @@ python paper_bybit.py
 
 Lo stato viene salvato in `paper_state/bybit_paper.json`. Ogni nuova esecuzione aggiorna cassa, posizioni e trade simulati.
 
+Genera una dashboard locale:
+
+```powershell
+python dashboard.py
+```
+
+Poi apri `dashboard.html` nel browser.
+
 Puoi limitare la leva massima cosi:
 
 ```powershell

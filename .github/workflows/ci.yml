@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python files
+        run: python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py dashboard.py
+      - name: Generate dashboard from empty state
+        run: python dashboard.py --state paper_state/missing.json --output dashboard.html
