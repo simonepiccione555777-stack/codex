@@ -11,6 +11,7 @@ from paper_bybit import (
     choose_leverage,
     close_position,
     default_state,
+    in_cooldown,
     latest_signal,
     portfolio_value,
 )
@@ -22,6 +23,7 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     price = info["close"]
     atr_value = info["atr"]
     state["last_seen"][symbol] = timestamp
+    risk_state = state.setdefault("risk", {"consecutive_stops": 0})
 
     raw_position = state["positions"].get(symbol)
     if raw_position:
@@ -40,10 +42,24 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     if signal != "BUY" or atr_value is None:
         return None
 
+    if in_cooldown(risk_state, timestamp):
+        return None
+
+    current_open_risk = sum(float(position.get("risk_fraction", 0)) for position in state.get("positions", {}).values())
+    if current_open_risk >= args.max_open_risk:
+        return None
+
     leverage = choose_leverage(info, args)
+    effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
+    correlated_count = sum(1 for open_symbol in state.get("positions", {}) if open_symbol.endswith(symbol[-4:]))
+    if correlated_count > 0:
+        effective_risk *= args.correlated_risk_multiplier
+    if leverage >= args.high_leverage_threshold:
+        effective_risk = min(effective_risk, args.high_leverage_max_risk)
+
     available_margin = state["cash"] * args.max_symbol_allocation
     available_notional = available_margin * leverage
-    risk_amount = state["cash"] * args.risk
+    risk_amount = state["cash"] * effective_risk
     stop_distance = atr_value * args.stop_atr
     quantity = min(risk_amount / stop_distance, available_notional / price) if stop_distance > 0 else 0
     entry = price * (1 + args.slippage)
@@ -65,6 +81,7 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
             margin=margin,
             leverage=leverage,
             opened_at=timestamp,
+            risk_fraction=effective_risk,
         )
     )
     return f"{timestamp} {symbol} OPEN_LONG {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
@@ -137,6 +154,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capital", type=float, default=100.0)
     parser.add_argument("--lookback", type=int, default=200)
     parser.add_argument("--risk", type=float, default=0.02)
+    parser.add_argument("--max-open-risk", type=float, default=0.10)
+    parser.add_argument("--correlated-risk-multiplier", type=float, default=0.5)
+    parser.add_argument("--stop-cooldown-after", type=int, default=2)
+    parser.add_argument("--cooldown-hours", type=int, default=24)
     parser.add_argument("--leverage", type=float, default=2.0)
     parser.add_argument("--adaptive-leverage", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-leverage", type=float, default=2.0)
@@ -144,6 +165,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--low-volatility", type=float, default=0.006)
     parser.add_argument("--high-volatility", type=float, default=0.025)
     parser.add_argument("--strong-trend-gap", type=float, default=0.01)
+    parser.add_argument("--high-leverage-threshold", type=float, default=25.0)
+    parser.add_argument("--high-leverage-max-risk", type=float, default=0.05)
     parser.add_argument("--max-symbol-allocation", type=float, default=0.45)
     parser.add_argument("--fee", type=float, default=0.001)
     parser.add_argument("--slippage", type=float, default=0.0005)
@@ -162,9 +185,15 @@ def parse_args() -> argparse.Namespace:
 def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
     if args.profile == "moonshot":
         args.risk = 0.08
+        args.max_open_risk = 0.12
+        args.correlated_risk_multiplier = 0.4
+        args.stop_cooldown_after = 2
+        args.cooldown_hours = 24
         args.max_symbol_allocation = 0.75
         args.min_leverage = 8.0
         args.max_leverage = 70.0
+        args.high_leverage_threshold = 25.0
+        args.high_leverage_max_risk = 0.05
         args.stop_atr = 1.5
         args.take_profit_atr = 4.5
         args.max_rsi = 78

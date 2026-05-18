@@ -48,6 +48,13 @@ python paper_bybit.py --profile moonshot
 
 Il profilo `moonshot` rischia 8% per trade, puo allocare fino al 75% della cassa per simbolo e usa un RR teorico 1:3. Il drawdown puo diventare molto piu pesante.
 
+Il profilo include anche freni di rischio:
+
+- rischio aperto totale massimo 12%;
+- size ridotta quando BTCUSDT ed ETHUSDT sono aperti insieme;
+- pausa di 24 ore dopo 2 stop consecutivi;
+- se la leva supera 25x, rischio effettivo massimo 5% sul trade.
+
 Genera una dashboard locale:
 
 ```powershell
