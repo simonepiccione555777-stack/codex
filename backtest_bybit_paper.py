@@ -62,7 +62,13 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     leverage = choose_leverage(info, args, side)
     effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
     correlated_count = sum(1 for open_symbol in state.get("positions", {}) if open_symbol.endswith(symbol[-4:]))
-    if correlated_count > 0:
+    if side == "SHORT":
+        leverage = min(leverage, args.short_max_leverage)
+        effective_risk *= args.short_risk_multiplier
+        effective_risk = min(effective_risk, args.short_max_risk)
+        if correlated_count > 0:
+            effective_risk *= args.short_correlated_risk_multiplier
+    elif correlated_count > 0:
         effective_risk *= args.correlated_risk_multiplier
     if leverage >= args.high_leverage_threshold:
         effective_risk = min(effective_risk, args.high_leverage_max_risk)
@@ -190,6 +196,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-rsi", type=float, default=72)
     parser.add_argument("--short-min-rsi", type=float, default=28)
     parser.add_argument("--short-max-rsi", type=float, default=50)
+    parser.add_argument("--short-breakdown-lookback", type=int, default=24)
+    parser.add_argument("--volume-lookback", type=int, default=24)
+    parser.add_argument("--short-volume-multiplier", type=float, default=1.15)
+    parser.add_argument("--short-risk-multiplier", type=float, default=0.45)
+    parser.add_argument("--short-correlated-risk-multiplier", type=float, default=0.25)
+    parser.add_argument("--short-max-risk", type=float, default=0.025)
+    parser.add_argument("--short-max-leverage", type=float, default=25.0)
     parser.add_argument("--stop-atr", type=float, default=2.0)
     parser.add_argument("--take-profit-atr", type=float, default=4.0)
     parser.add_argument("--output", default="")
@@ -211,6 +224,15 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.stop_atr = 1.5
         args.take_profit_atr = 4.5
         args.max_rsi = 78
+        args.short_min_rsi = 22
+        args.short_max_rsi = 45
+        args.short_breakdown_lookback = 24
+        args.volume_lookback = 24
+        args.short_volume_multiplier = 1.15
+        args.short_risk_multiplier = 0.45
+        args.short_correlated_risk_multiplier = 0.25
+        args.short_max_risk = 0.025
+        args.short_max_leverage = 25.0
     return args
 
 

@@ -48,7 +48,7 @@ python paper_bybit.py --profile moonshot
 
 Il profilo `moonshot` rischia 8% per trade, puo allocare fino al 75% della cassa per simbolo e usa un RR teorico 1:3. Il drawdown puo diventare molto piu pesante.
 
-Gli short sono supportati, ma sono disattivati di default perche nel backtest 3 mesi peggiorano il risultato. Puoi testarli cosi:
+Gli short sono supportati e usano una logica piu selettiva: breakdown sotto il minimo recente, volume sopra media e rischio ridotto. Puoi abilitarli cosi:
 
 ```powershell
 python paper_bybit.py --profile moonshot --allow-short
