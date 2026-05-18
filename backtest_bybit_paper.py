@@ -128,6 +128,7 @@ def run_backtest(args: argparse.Namespace) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backtest Bybit della stessa logica paper trading.")
+    parser.add_argument("--profile", choices=["base", "moonshot"], default="base")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"])
     parser.add_argument("--category", default="spot", choices=["spot", "linear", "inverse"])
     parser.add_argument("--interval", default="60")
@@ -158,8 +159,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
+    if args.profile == "moonshot":
+        args.risk = 0.08
+        args.max_symbol_allocation = 0.75
+        args.min_leverage = 8.0
+        args.max_leverage = 70.0
+        args.stop_atr = 1.5
+        args.take_profit_atr = 4.5
+        args.max_rsi = 78
+    return args
+
+
 def main() -> None:
-    args = parse_args()
+    args = apply_profile(parse_args())
     result = run_backtest(args)
     print("=== Bybit Paper Logic Backtest ===")
     print(f"Periodo: {result['start']} -> {result['end']}")

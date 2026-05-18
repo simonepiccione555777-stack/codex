@@ -192,6 +192,7 @@ def portfolio_value(state: dict, prices: dict[str, float]) -> float:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Paper trading locale su dati pubblici Bybit.")
+    parser.add_argument("--profile", choices=["base", "moonshot"], default="base")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"])
     parser.add_argument("--category", default="spot", choices=["spot", "linear", "inverse"])
     parser.add_argument("--interval", default="60", help="Intervallo Bybit: 15, 60, 240, D.")
@@ -220,8 +221,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
+    if args.profile == "moonshot":
+        args.risk = 0.08
+        args.max_symbol_allocation = 0.75
+        args.min_leverage = 8.0
+        args.max_leverage = 70.0
+        args.stop_atr = 1.5
+        args.take_profit_atr = 4.5
+        args.max_rsi = 78
+    return args
+
+
 def main() -> None:
-    args = parse_args()
+    args = apply_profile(parse_args())
     state_path = Path(args.state)
     state = load_state(state_path, args.capital)
     prices: dict[str, float] = {}

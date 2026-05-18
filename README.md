@@ -40,6 +40,14 @@ python paper_bybit.py
 
 Lo stato viene salvato in `paper_state/bybit_paper.json`. Ogni nuova esecuzione aggiorna cassa, posizioni e trade simulati.
 
+Profilo piu aggressivo per cercare crescita rapida in paper trading:
+
+```powershell
+python paper_bybit.py --profile moonshot
+```
+
+Il profilo `moonshot` rischia 8% per trade, puo allocare fino al 75% della cassa per simbolo e usa un RR teorico 1:3. Il drawdown puo diventare molto piu pesante.
+
 Genera una dashboard locale:
 
 ```powershell
@@ -78,6 +86,12 @@ Oppure rigioca direttamente la logica del paper trader su BTCUSDT e ETHUSDT:
 
 ```powershell
 python backtest_bybit_paper.py --start 2026-04-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_2026-04-18_2026-05-18.json
+```
+
+Backtest del profilo aggressivo:
+
+```powershell
+python backtest_bybit_paper.py --profile moonshot --start 2026-04-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_2026-04-18_2026-05-18.json
 ```
 
 Esempio con parametri piu aggressivi:
