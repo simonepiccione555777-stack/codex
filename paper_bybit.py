@@ -22,6 +22,8 @@ class PaperPosition:
     opened_at: str
     side: str = "LONG"
     risk_fraction: float = 0.0
+    trailing_active: bool = False
+    best_price: float = 0.0
 
 
 def default_state(capital: float) -> dict:
@@ -160,6 +162,29 @@ def close_position(state: dict, position: PaperPosition, price: float, timestamp
     del state["positions"][position.symbol]
 
 
+def update_trailing_stop(position: PaperPosition, price: float, atr_value: float | None, args: argparse.Namespace) -> PaperPosition:
+    if not args.trailing_stop or atr_value is None:
+        return position
+
+    activation_distance = atr_value * args.trailing_activation_atr
+    trail_distance = atr_value * args.trailing_distance_atr
+
+    if position.side == "LONG":
+        position.best_price = max(position.best_price or position.entry, price)
+        if not position.trailing_active and position.best_price >= position.entry + activation_distance:
+            position.trailing_active = True
+        if position.trailing_active:
+            position.stop = max(position.stop, position.best_price - trail_distance)
+    else:
+        position.best_price = min(position.best_price or position.entry, price)
+        if not position.trailing_active and position.best_price <= position.entry - activation_distance:
+            position.trailing_active = True
+        if position.trailing_active:
+            position.stop = min(position.stop, position.best_price + trail_distance)
+
+    return position
+
+
 def parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
@@ -203,6 +228,8 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     raw_position = state["positions"].get(symbol)
     if raw_position:
         position = PaperPosition(**raw_position)
+        position = update_trailing_stop(position, price, atr_value, args)
+        state["positions"][symbol] = asdict(position)
         if position.side == "LONG" and price <= position.stop:
             close_position(state, position, position.stop, timestamp, "stop", args)
             return f"{symbol}: chiusa per stop a {position.stop:.4f}."
@@ -274,6 +301,7 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
             leverage=leverage,
             opened_at=timestamp,
             risk_fraction=effective_risk,
+            best_price=entry,
         )
     )
     return f"{symbol}: apertura paper {side} {leverage:.1f}x a {entry:.4f}, margine {margin:.2f} USDT."
@@ -337,6 +365,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--short-max-leverage", type=float, default=25.0)
     parser.add_argument("--stop-atr", type=float, default=2.0)
     parser.add_argument("--take-profit-atr", type=float, default=4.0)
+    parser.add_argument("--trailing-stop", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--trailing-activation-atr", type=float, default=2.0)
+    parser.add_argument("--trailing-distance-atr", type=float, default=1.5)
     return parser.parse_args()
 
 
@@ -354,6 +385,8 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.high_leverage_max_risk = 0.05
         args.stop_atr = 1.5
         args.take_profit_atr = 4.5
+        args.trailing_activation_atr = 4.0
+        args.trailing_distance_atr = 2.5
         args.max_rsi = 78
         args.short_min_rsi = 22
         args.short_max_rsi = 45

@@ -54,6 +54,12 @@ Gli short sono supportati e usano una logica piu selettiva: breakdown sotto il m
 python paper_bybit.py --profile moonshot --allow-short
 ```
 
+Il trailing stop e' integrato ma disattivato di default: nel backtest 3 mesi riduce un po' il drawdown ma taglia troppo i trade migliori. Puoi testarlo cosi:
+
+```powershell
+python paper_bybit.py --profile moonshot --allow-short --trailing-stop
+```
+
 Il profilo include anche freni di rischio:
 
 - rischio aperto totale massimo 12%;

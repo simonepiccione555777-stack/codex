@@ -14,6 +14,7 @@ from paper_bybit import (
     in_cooldown,
     latest_signal,
     portfolio_value,
+    update_trailing_stop,
 )
 
 
@@ -28,6 +29,8 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     raw_position = state["positions"].get(symbol)
     if raw_position:
         position = PaperPosition(**raw_position)
+        position = update_trailing_stop(position, price, atr_value, args)
+        state["positions"][symbol] = asdict(position)
         if position.side == "LONG" and candle.low <= position.stop:
             close_position(state, position, position.stop, timestamp, "stop", args)
             return f"{timestamp} {symbol} LONG STOP {position.stop:.4f}"
@@ -99,6 +102,7 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
             leverage=leverage,
             opened_at=timestamp,
             risk_fraction=effective_risk,
+            best_price=entry,
         )
     )
     return f"{timestamp} {symbol} OPEN_{side} {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
@@ -206,6 +210,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--short-max-leverage", type=float, default=25.0)
     parser.add_argument("--stop-atr", type=float, default=2.0)
     parser.add_argument("--take-profit-atr", type=float, default=4.0)
+    parser.add_argument("--trailing-stop", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--trailing-activation-atr", type=float, default=2.0)
+    parser.add_argument("--trailing-distance-atr", type=float, default=1.5)
     parser.add_argument("--output", default="")
     return parser.parse_args()
 
@@ -224,6 +231,8 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.high_leverage_max_risk = 0.05
         args.stop_atr = 1.5
         args.take_profit_atr = 4.5
+        args.trailing_activation_atr = 4.0
+        args.trailing_distance_atr = 2.5
         args.max_rsi = 78
         args.short_min_rsi = 22
         args.short_max_rsi = 45
