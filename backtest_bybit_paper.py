@@ -9,6 +9,7 @@ from bybit_public import fetch_historical_klines
 from paper_bybit import (
     PaperPosition,
     choose_leverage,
+    classify_regime,
     close_position,
     default_state,
     in_cooldown,
@@ -18,7 +19,7 @@ from paper_bybit import (
 )
 
 
-def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argparse.Namespace) -> str | None:
+def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argparse.Namespace, regime: dict | None = None) -> str | None:
     signal, info = latest_signal(history, args)
     timestamp = info["timestamp"]
     price = info["close"]
@@ -62,6 +63,12 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
         return None
 
     side = "LONG" if signal == "BUY" else "SHORT"
+    regime = regime or {"name": "OFF", "long_allowed": True, "short_allowed": True}
+    if side == "LONG" and not regime["long_allowed"]:
+        return None
+    if side == "SHORT" and not regime["short_allowed"]:
+        return None
+
     leverage = choose_leverage(info, args, side)
     effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
     correlated_count = sum(1 for open_symbol in state.get("positions", {}) if open_symbol.endswith(symbol[-4:]))
@@ -108,11 +115,26 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     return f"{timestamp} {symbol} OPEN_{side} {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
 
 
+def regime_at(timestamp: str, regime_candles: list, args: argparse.Namespace) -> dict:
+    if not args.regime_filter:
+        return {"name": "OFF", "long_allowed": True, "short_allowed": True}
+
+    history = [candle for candle in regime_candles if candle.timestamp <= timestamp]
+    if len(history) < args.regime_slow_ema + 2:
+        return {"name": "UNKNOWN", "long_allowed": False, "short_allowed": False}
+    return classify_regime(history, args)
+
+
 def run_backtest(args: argparse.Namespace) -> dict:
     candles_by_symbol = {
         symbol: fetch_historical_klines(symbol, args.interval, args.start, args.end, args.category)
         for symbol in args.symbols
     }
+    regime_candles = (
+        fetch_historical_klines(args.regime_symbol, args.regime_interval, args.start, args.end, args.category)
+        if args.regime_filter
+        else []
+    )
     min_length = min(len(candles) for candles in candles_by_symbol.values())
     if min_length < max(args.lookback, args.slow_ema, args.atr_period, args.rsi_period) + 5:
         raise SystemExit("Dati insufficienti per il periodo richiesto.")
@@ -127,7 +149,8 @@ def run_backtest(args: argparse.Namespace) -> dict:
             history = candles[: idx + 1]
             candle = candles[idx]
             prices[symbol] = candle.close
-            event = run_symbol_step(state, symbol, history, candle, args)
+            regime = regime_at(candle.timestamp, regime_candles, args)
+            event = run_symbol_step(state, symbol, history, candle, args, regime)
             if event:
                 events.append(event)
         equity_curve.append(portfolio_value(state, prices))
@@ -213,6 +236,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trailing-stop", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--trailing-activation-atr", type=float, default=2.0)
     parser.add_argument("--trailing-distance-atr", type=float, default=1.5)
+    parser.add_argument("--regime-filter", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--regime-symbol", default="BTCUSDT")
+    parser.add_argument("--regime-interval", default="240")
+    parser.add_argument("--regime-lookback", type=int, default=260)
+    parser.add_argument("--regime-fast-ema", type=int, default=50)
+    parser.add_argument("--regime-slow-ema", type=int, default=200)
     parser.add_argument("--output", default="")
     return parser.parse_args()
 
@@ -233,6 +262,12 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.take_profit_atr = 4.5
         args.trailing_activation_atr = 4.0
         args.trailing_distance_atr = 2.5
+        args.regime_filter = True
+        args.regime_symbol = "BTCUSDT"
+        args.regime_interval = "240"
+        args.regime_lookback = 260
+        args.regime_fast_ema = 30
+        args.regime_slow_ema = 120
         args.max_rsi = 78
         args.short_min_rsi = 22
         args.short_max_rsi = 45

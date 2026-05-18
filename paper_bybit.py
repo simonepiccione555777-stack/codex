@@ -129,6 +129,38 @@ def choose_leverage(info: dict, args: argparse.Namespace, side: str = "LONG") ->
     return round(max(args.min_leverage, min(leverage, args.max_leverage)), 1)
 
 
+def classify_regime(candles, args: argparse.Namespace) -> dict:
+    closes = [candle.close for candle in candles]
+    fast = ema(closes, args.regime_fast_ema)
+    slow = ema(closes, args.regime_slow_ema)
+    idx = len(candles) - 1
+    if idx < 1 or fast[idx] is None or slow[idx] is None or fast[idx - 1] is None:
+        return {"name": "UNKNOWN", "long_allowed": not args.regime_filter, "short_allowed": not args.regime_filter}
+
+    price = closes[idx]
+    fast_rising = fast[idx] >= fast[idx - 1]
+    bull = price > slow[idx] and fast[idx] > slow[idx] and fast_rising
+    bear = price < slow[idx] and fast[idx] < slow[idx] and not fast_rising
+
+    if bull:
+        return {"name": "BULL", "long_allowed": True, "short_allowed": False}
+    if bear:
+        return {"name": "BEAR", "long_allowed": False, "short_allowed": True}
+    return {"name": "NEUTRAL", "long_allowed": False, "short_allowed": False}
+
+
+def current_market_regime(args: argparse.Namespace) -> dict:
+    if not args.regime_filter:
+        return {"name": "OFF", "long_allowed": True, "short_allowed": True}
+    candles = fetch_klines(
+        symbol=args.regime_symbol,
+        interval=args.regime_interval,
+        category=args.category,
+        limit=args.regime_lookback,
+    )
+    return classify_regime(candles, args)
+
+
 def close_position(state: dict, position: PaperPosition, price: float, timestamp: str, reason: str, args: argparse.Namespace) -> None:
     exit_price = price * (1 - args.slippage) if position.side == "LONG" else price * (1 + args.slippage)
     gross = position.quantity * exit_price
@@ -261,6 +293,12 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
         return f"{symbol}: BUY ignorato, budget rischio aperto gia' pieno."
 
     side = "LONG" if signal == "BUY" else "SHORT"
+    regime = current_market_regime(args)
+    if side == "LONG" and not regime["long_allowed"]:
+        return f"{symbol}: LONG ignorato, regime {regime['name']}."
+    if side == "SHORT" and not regime["short_allowed"]:
+        return f"{symbol}: SHORT ignorato, regime {regime['name']}."
+
     leverage = choose_leverage(info, args, side)
     effective_risk = min(args.risk, args.max_open_risk - current_open_risk)
     correlated_count = correlated_position_count(state, symbol)
@@ -368,6 +406,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trailing-stop", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--trailing-activation-atr", type=float, default=2.0)
     parser.add_argument("--trailing-distance-atr", type=float, default=1.5)
+    parser.add_argument("--regime-filter", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--regime-symbol", default="BTCUSDT")
+    parser.add_argument("--regime-interval", default="240")
+    parser.add_argument("--regime-lookback", type=int, default=260)
+    parser.add_argument("--regime-fast-ema", type=int, default=50)
+    parser.add_argument("--regime-slow-ema", type=int, default=200)
     return parser.parse_args()
 
 
@@ -387,6 +431,12 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         args.take_profit_atr = 4.5
         args.trailing_activation_atr = 4.0
         args.trailing_distance_atr = 2.5
+        args.regime_filter = True
+        args.regime_symbol = "BTCUSDT"
+        args.regime_interval = "240"
+        args.regime_lookback = 260
+        args.regime_fast_ema = 30
+        args.regime_slow_ema = 120
         args.max_rsi = 78
         args.short_min_rsi = 22
         args.short_max_rsi = 45

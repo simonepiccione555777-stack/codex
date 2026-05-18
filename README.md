@@ -66,6 +66,7 @@ Il profilo include anche freni di rischio:
 - size ridotta quando BTCUSDT ed ETHUSDT sono aperti insieme;
 - pausa di 24 ore dopo 2 stop consecutivi;
 - se la leva supera 25x, rischio effettivo massimo 5% sul trade.
+- filtro regime BTCUSDT 4H: long moonshot solo in regime rialzista, short solo in regime ribassista.
 
 Genera una dashboard locale:
 
@@ -117,6 +118,12 @@ Backtest con short abilitati:
 
 ```powershell
 python backtest_bybit_paper.py --profile moonshot --allow-short --start 2026-02-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_longshort_3m.json
+```
+
+Backtest 6 mesi con filtro regime:
+
+```powershell
+python backtest_bybit_paper.py --profile moonshot --allow-short --start 2025-11-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_regime_6m.json
 ```
 
 Esempio con parametri piu aggressivi:
