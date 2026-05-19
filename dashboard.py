@@ -29,6 +29,76 @@ def estimate_equity(state: dict) -> float:
     return equity
 
 
+def pct(value: float) -> str:
+    return f"{value:.2f}%"
+
+
+def trade_stats(trades: list[dict]) -> dict:
+    wins = [trade for trade in trades if float(trade.get("pnl", 0)) > 0]
+    losses = [trade for trade in trades if float(trade.get("pnl", 0)) <= 0]
+    gross_win = sum(float(trade.get("pnl", 0)) for trade in wins)
+    gross_loss = abs(sum(float(trade.get("pnl", 0)) for trade in losses))
+    return {
+        "count": len(trades),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": (len(wins) / len(trades) * 100) if trades else 0.0,
+        "profit_factor": (gross_win / gross_loss) if gross_loss else None,
+        "best": max((float(trade.get("pnl", 0)) for trade in trades), default=0.0),
+        "worst": min((float(trade.get("pnl", 0)) for trade in trades), default=0.0),
+    }
+
+
+def render_risk(risk: dict) -> str:
+    daily = risk.get("daily", {})
+    cooldown = risk.get("cooldown_until") or "non attiva"
+    latest_day = max(daily) if daily else ""
+    latest_equity = daily.get(latest_day, {}).get("start_equity") if latest_day else None
+    daily_text = f"{latest_day} da {money(float(latest_equity))}" if latest_equity else "nessun dato giornaliero"
+    rows = [
+        ("Stop consecutivi", str(risk.get("consecutive_stops", 0))),
+        ("Equity peak", money(float(risk.get("equity_peak", 0)))),
+        ("Pausa fino a", html.escape(cooldown)),
+        ("Giorno monitorato", html.escape(daily_text)),
+    ]
+    return "\n".join(f"<tr><th>{label}</th><td>{value}</td></tr>" for label, value in rows)
+
+
+def render_equity_chart(trades: list[dict], start_capital: float = 100.0) -> str:
+    points = [start_capital]
+    equity = start_capital
+    for trade in trades:
+        equity += float(trade.get("pnl", 0))
+        points.append(equity)
+
+    if len(points) < 2:
+        return '<div class="empty-chart">Lo storico equity apparira dopo i primi trade chiusi.</div>'
+
+    width = 760
+    height = 180
+    padding = 18
+    low = min(points)
+    high = max(points)
+    span = high - low or 1.0
+    step = (width - padding * 2) / (len(points) - 1)
+    coords = []
+    for index, value in enumerate(points):
+        x = padding + index * step
+        y = height - padding - ((value - low) / span) * (height - padding * 2)
+        coords.append(f"{x:.1f},{y:.1f}")
+
+    color = "#41d18c" if points[-1] >= points[0] else "#ff6b6b"
+    return (
+        f'<svg class="equity-chart" viewBox="0 0 {width} {height}" role="img" aria-label="Andamento equity">'
+        f'<line x1="{padding}" y1="{height - padding}" x2="{width - padding}" y2="{height - padding}" />'
+        f'<line x1="{padding}" y1="{padding}" x2="{padding}" y2="{height - padding}" />'
+        f'<polyline points="{" ".join(coords)}" style="stroke:{color}" />'
+        f'<text x="{padding}" y="{padding + 4}">{money(high)}</text>'
+        f'<text x="{padding}" y="{height - 6}">{money(low)}</text>'
+        "</svg>"
+    )
+
+
 def render_positions(positions: dict) -> str:
     if not positions:
         return '<tr><td colspan="8">Nessuna posizione aperta</td></tr>'
@@ -52,7 +122,7 @@ def render_positions(positions: dict) -> str:
 
 def render_trades(trades: list[dict]) -> str:
     if not trades:
-        return '<tr><td colspan="7">Nessun trade chiuso</td></tr>'
+        return '<tr><td colspan="8">Nessun trade chiuso</td></tr>'
 
     rows = []
     for trade in reversed(trades[-20:]):
@@ -61,6 +131,7 @@ def render_trades(trades: list[dict]) -> str:
         rows.append(
             "<tr>"
             f"<td>{html.escape(trade['symbol'])}</td>"
+            f"<td>{html.escape(trade.get('side', 'LONG'))}</td>"
             f"<td>{html.escape(trade['reason'])}</td>"
             f"<td>{float(trade['entry']):,.4f}</td>"
             f"<td>{float(trade['exit']):,.4f}</td>"
@@ -79,6 +150,8 @@ def build_dashboard(state: dict, target: float) -> str:
     progress = max(0.0, min(equity / target, 1.0)) if target > 0 else 0.0
     positions = state.get("positions", {})
     trades = state.get("trades", [])
+    stats = trade_stats(trades)
+    risk = state.get("risk", {})
     last_seen = state.get("last_seen", {})
 
     return f"""<!doctype html>
@@ -98,6 +171,7 @@ def build_dashboard(state: dict, target: float) -> str:
       --good: #41d18c;
       --bad: #ff6b6b;
       --accent: #ffd166;
+      --soft: #202932;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -143,6 +217,11 @@ def build_dashboard(state: dict, target: float) -> str:
       text-transform: uppercase;
     }}
     .metric strong {{ font-size: 22px; }}
+    .metric small {{
+      display: block;
+      color: var(--muted);
+      margin-top: 6px;
+    }}
     .progress {{
       height: 10px;
       background: #0c0f12;
@@ -179,9 +258,38 @@ def build_dashboard(state: dict, target: float) -> str:
     }}
     .positive {{ color: var(--good); }}
     .negative {{ color: var(--bad); }}
+    .split {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 14px;
+      align-items: start;
+    }}
+    .equity-chart {{
+      width: 100%;
+      height: auto;
+      background: #0c0f12;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }}
+    .equity-chart line {{ stroke: var(--line); stroke-width: 1; }}
+    .equity-chart polyline {{ fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }}
+    .equity-chart text {{ fill: var(--muted); font-size: 12px; }}
+    .empty-chart {{
+      display: grid;
+      place-items: center;
+      min-height: 180px;
+      color: var(--muted);
+      background: #0c0f12;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }}
+    .risk-table {{ min-width: 0; }}
+    .risk-table th {{ width: 45%; }}
     @media (max-width: 800px) {{
       header {{ display: block; }}
       .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .split {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 520px) {{
       .grid {{ grid-template-columns: 1fr; }}
@@ -203,6 +311,23 @@ def build_dashboard(state: dict, target: float) -> str:
       <div class="metric"><span>Equity stimata</span><strong>{money(equity)}</strong></div>
       <div class="metric"><span>PNL chiuso</span><strong class="{"positive" if closed_pnl >= 0 else "negative"}">{signed_money(closed_pnl)}</strong></div>
       <div class="metric"><span>Target</span><strong>{money(target)}</strong><div class="progress"><div class="bar"></div></div></div>
+      <div class="metric"><span>Trade chiusi</span><strong>{stats["count"]}</strong><small>{stats["wins"]} vincenti / {stats["losses"]} in perdita</small></div>
+      <div class="metric"><span>Win rate</span><strong>{pct(stats["win_rate"])}</strong></div>
+      <div class="metric"><span>Profit factor</span><strong>{"n/a" if stats["profit_factor"] is None else f"{stats['profit_factor']:.2f}"}</strong></div>
+      <div class="metric"><span>Best / worst</span><strong class="{"positive" if stats["best"] >= 0 else "negative"}">{signed_money(stats["best"])}</strong><small class="{"negative" if stats["worst"] < 0 else "positive"}">{signed_money(stats["worst"])}</small></div>
+    </div>
+
+    <div class="split">
+      <section>
+        <h2>Equity Da Trade Chiusi</h2>
+        {render_equity_chart(trades, 100.0)}
+      </section>
+      <section>
+        <h2>Stato Rischio</h2>
+        <table class="risk-table">
+          <tbody>{render_risk(risk)}</tbody>
+        </table>
+      </section>
     </div>
 
     <section>
@@ -216,7 +341,7 @@ def build_dashboard(state: dict, target: float) -> str:
     <section>
       <h2>Trade Chiusi</h2>
       <table>
-        <thead><tr><th>Symbol</th><th>Motivo</th><th>Entry</th><th>Exit</th><th>Quantita</th><th>PNL</th><th>Chiusa</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>Lato</th><th>Motivo</th><th>Entry</th><th>Exit</th><th>Quantita</th><th>PNL</th><th>Chiusa</th></tr></thead>
         <tbody>{render_trades(trades)}</tbody>
       </table>
     </section>

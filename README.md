@@ -77,6 +77,7 @@ python dashboard.py
 ```
 
 Poi apri `dashboard.html` nel browser.
+La dashboard mostra capitale, equity stimata, PnL chiuso, stato rischio, posizioni aperte, ultimi trade e curva equity dei trade chiusi.
 
 Puoi limitare la leva massima cosi:
 
