@@ -22,6 +22,13 @@ def load_state(path: Path) -> dict:
         return json.load(handle)
 
 
+def load_optional_json(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def estimate_equity(state: dict) -> float:
     equity = float(state.get("cash", 0))
     for raw_position in state.get("positions", {}).values():
@@ -143,7 +150,70 @@ def render_trades(trades: list[dict]) -> str:
     return "\n".join(rows)
 
 
-def build_dashboard(state: dict, target: float) -> str:
+def render_summary_rows(summary: dict) -> str:
+    if not summary:
+        return '<tr><td colspan="4">Nessun dato disponibile</td></tr>'
+
+    rows = []
+    for label, row in summary.items():
+        pnl = float(row.get("pnl", 0))
+        pnl_class = "positive" if pnl >= 0 else "negative"
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(label))}</td>"
+            f"<td>{int(row.get('trades', 0))}</td>"
+            f"<td>{pct(float(row.get('win_rate_pct', 0)))}</td>"
+            f'<td class="{pnl_class}">{signed_money(pnl)}</td>'
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
+def render_backtest(backtest: dict | None) -> str:
+    if not backtest:
+        return """
+    <section>
+      <h2>Backtest 6 Mesi</h2>
+      <div class="empty-chart">Nessun report backtest collegato alla dashboard.</div>
+    </section>
+"""
+
+    return_pct = float(backtest.get("return_pct", 0))
+    return_class = "positive" if return_pct >= 0 else "negative"
+    profit_factor = backtest.get("profit_factor")
+    return f"""
+    <section>
+      <h2>Backtest 6 Mesi</h2>
+      <div class="muted">Periodo: {html.escape(backtest.get("start", ""))} -> {html.escape(backtest.get("end", ""))}</div>
+      <div class="grid compact-grid">
+        <div class="metric"><span>Equity finale</span><strong>{money(float(backtest.get("final_equity", 0)))}</strong></div>
+        <div class="metric"><span>Rendimento</span><strong class="{return_class}">{pct(return_pct)}</strong></div>
+        <div class="metric"><span>Max drawdown</span><strong class="negative">{pct(float(backtest.get("max_drawdown_pct", 0)))}</strong></div>
+        <div class="metric"><span>Trade</span><strong>{int(backtest.get("closed_trades", 0))}</strong></div>
+        <div class="metric"><span>Win rate</span><strong>{pct(float(backtest.get("win_rate_pct", 0)))}</strong></div>
+        <div class="metric"><span>Profit factor</span><strong>{"n/a" if profit_factor is None else f"{float(profit_factor):.2f}"}</strong></div>
+      </div>
+      <div class="split">
+        <div>
+          <h2>Sintesi Mensile</h2>
+          <table>
+            <thead><tr><th>Mese</th><th>Trade</th><th>Win rate</th><th>PNL</th></tr></thead>
+            <tbody>{render_summary_rows(backtest.get("monthly", {}))}</tbody>
+          </table>
+        </div>
+        <div>
+          <h2>Long / Short</h2>
+          <table>
+            <thead><tr><th>Lato</th><th>Trade</th><th>Win rate</th><th>PNL</th></tr></thead>
+            <tbody>{render_summary_rows(backtest.get("by_side", {}))}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+"""
+
+
+def build_dashboard(state: dict, target: float, backtest: dict | None = None) -> str:
     cash = float(state.get("cash", 0))
     equity = estimate_equity(state)
     closed_pnl = sum(float(trade.get("pnl", 0)) for trade in state.get("trades", []))
@@ -202,6 +272,10 @@ def build_dashboard(state: dict, target: float) -> str:
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 20px;
+    }}
+    .compact-grid {{
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      margin-top: 14px;
     }}
     .metric, section {{
       background: var(--panel);
@@ -264,6 +338,10 @@ def build_dashboard(state: dict, target: float) -> str:
       gap: 14px;
       align-items: start;
     }}
+    .split > div {{
+      min-width: 0;
+      overflow-x: auto;
+    }}
     .equity-chart {{
       width: 100%;
       height: auto;
@@ -289,10 +367,12 @@ def build_dashboard(state: dict, target: float) -> str:
     @media (max-width: 800px) {{
       header {{ display: block; }}
       .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .compact-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .split {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 520px) {{
       .grid {{ grid-template-columns: 1fr; }}
+      .compact-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -330,6 +410,8 @@ def build_dashboard(state: dict, target: float) -> str:
       </section>
     </div>
 
+    {render_backtest(backtest)}
+
     <section>
       <h2>Posizioni Aperte</h2>
       <table>
@@ -354,6 +436,7 @@ def build_dashboard(state: dict, target: float) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Genera una dashboard HTML per il paper trading Bybit.")
     parser.add_argument("--state", default="paper_state/bybit_paper.json")
+    parser.add_argument("--backtest", default="runs/dashboard_backtest_6m.json")
     parser.add_argument("--output", default="dashboard.html")
     parser.add_argument("--target", type=float, default=1000.0)
     return parser.parse_args()
@@ -362,8 +445,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     state = load_state(Path(args.state))
+    backtest = load_optional_json(Path(args.backtest)) if args.backtest else None
     output = Path(args.output)
-    output.write_text(build_dashboard(state, args.target), encoding="utf-8")
+    output.write_text(build_dashboard(state, args.target, backtest), encoding="utf-8")
     print(f"Dashboard generata: {output}")
 
 
