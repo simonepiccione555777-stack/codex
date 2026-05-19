@@ -160,7 +160,9 @@ def backtest(args: argparse.Namespace) -> tuple[list[Trade], list[float]]:
                 pnl = position_quantity * (exit_price - entry_price)
                 fee = abs(position_quantity * exit_price) * args.fee
                 cash += position_quantity * exit_price - fee
-                trades.append(Trade(entry_time, candle.timestamp, "LONG", entry_price, exit_price, position_quantity, pnl - fee, "max_drawdown"))
+                trades.append(
+                    Trade(entry_time, candle.timestamp, "LONG", entry_price, exit_price, position_quantity, pnl - fee, "max_drawdown")
+                )
                 position_quantity = 0
             equity_curve.append(cash)
             break
@@ -235,11 +237,7 @@ def summarize(trades: list[Trade], equity_curve: list[float], start_capital: flo
 
     wins = [trade for trade in trades if trade.pnl > 0]
     losses = [trade for trade in trades if trade.pnl <= 0]
-    profit_factor = (
-        sum(t.pnl for t in wins) / abs(sum(t.pnl for t in losses))
-        if losses and sum(t.pnl for t in losses) != 0
-        else math.inf
-    )
+    profit_factor = sum(t.pnl for t in wins) / abs(sum(t.pnl for t in losses)) if losses and sum(t.pnl for t in losses) != 0 else math.inf
 
     lines = [
         "=== Crypto Trading Lab ===",
@@ -257,9 +255,7 @@ def summarize(trades: list[Trade], equity_curve: list[float], start_capital: flo
     if trades:
         lines.extend(["", "Ultimi trade:"])
         for trade in trades[-8:]:
-            lines.append(
-                f"{trade.exit_time} {trade.reason:12} entry={trade.entry:.4f} exit={trade.exit:.4f} pnl={trade.pnl:.2f}"
-            )
+            lines.append(f"{trade.exit_time} {trade.reason:12} entry={trade.entry:.4f} exit={trade.exit:.4f} pnl={trade.pnl:.2f}")
 
     return "\n".join(lines)
 

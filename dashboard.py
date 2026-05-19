@@ -31,7 +31,7 @@ def estimate_equity(state: dict) -> float:
 
 def render_positions(positions: dict) -> str:
     if not positions:
-        return "<tr><td colspan=\"8\">Nessuna posizione aperta</td></tr>"
+        return '<tr><td colspan="8">Nessuna posizione aperta</td></tr>'
 
     rows = []
     for symbol, position in sorted(positions.items()):
@@ -52,7 +52,7 @@ def render_positions(positions: dict) -> str:
 
 def render_trades(trades: list[dict]) -> str:
     if not trades:
-        return "<tr><td colspan=\"7\">Nessun trade chiuso</td></tr>"
+        return '<tr><td colspan="7">Nessun trade chiuso</td></tr>'
 
     rows = []
     for trade in reversed(trades[-20:]):
@@ -65,7 +65,7 @@ def render_trades(trades: list[dict]) -> str:
             f"<td>{float(trade['entry']):,.4f}</td>"
             f"<td>{float(trade['exit']):,.4f}</td>"
             f"<td>{float(trade['quantity']):.8f}</td>"
-            f"<td class=\"{pnl_class}\">{signed_money(pnl)}</td>"
+            f'<td class="{pnl_class}">{signed_money(pnl)}</td>'
             f"<td>{html.escape(trade['closed_at'])}</td>"
             "</tr>"
         )
@@ -201,7 +201,7 @@ def build_dashboard(state: dict, target: float) -> str:
     <div class="grid">
       <div class="metric"><span>Cassa</span><strong>{money(cash)}</strong></div>
       <div class="metric"><span>Equity stimata</span><strong>{money(equity)}</strong></div>
-      <div class="metric"><span>PNL chiuso</span><strong class="{'positive' if closed_pnl >= 0 else 'negative'}">{signed_money(closed_pnl)}</strong></div>
+      <div class="metric"><span>PNL chiuso</span><strong class="{"positive" if closed_pnl >= 0 else "negative"}">{signed_money(closed_pnl)}</strong></div>
       <div class="metric"><span>Target</span><strong>{money(target)}</strong><div class="progress"><div class="bar"></div></div></div>
     </div>
 

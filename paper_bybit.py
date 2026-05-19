@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bybit_public import fetch_klines
@@ -99,7 +99,9 @@ def latest_signal(candles, args: argparse.Namespace) -> tuple[str, dict]:
     volume_ok = closed[idx].volume >= avg_volume * args.short_volume_multiplier
     bearish_structure = fast[idx] < slow[idx]
 
-    close_position_in_range = (closed[idx].close - closed[idx].low) / (closed[idx].high - closed[idx].low) if closed[idx].high > closed[idx].low else 1.0
+    close_position_in_range = (
+        (closed[idx].close - closed[idx].low) / (closed[idx].high - closed[idx].low) if closed[idx].high > closed[idx].low else 1.0
+    )
     bearish_close = close_position_in_range <= args.short_max_close_position
 
     if crossed_down and short_momentum and breakdown and volume_ok and bearish_structure and bearish_close and args.allow_short:
@@ -236,7 +238,7 @@ def parse_timestamp(value: str) -> datetime:
 
 
 def add_hours(value: str, hours: int) -> str:
-    return (parse_timestamp(value) + timedelta(hours=hours)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (parse_timestamp(value) + timedelta(hours=hours)).astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def in_cooldown(risk_state: dict, timestamp: str) -> bool:

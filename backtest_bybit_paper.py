@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from bisect import bisect_right
 import json
+from bisect import bisect_right
 from dataclasses import asdict
 from pathlib import Path
 
@@ -206,13 +206,10 @@ def regime_at(timestamp: str, regime_timestamps: list[str], regime_values: list[
 
 def run_backtest(args: argparse.Namespace) -> dict:
     candles_by_symbol = {
-        symbol: fetch_historical_klines(symbol, args.interval, args.start, args.end, args.category)
-        for symbol in args.symbols
+        symbol: fetch_historical_klines(symbol, args.interval, args.start, args.end, args.category) for symbol in args.symbols
     }
     regime_candles = (
-        fetch_historical_klines(args.regime_symbol, args.regime_interval, args.start, args.end, args.category)
-        if args.regime_filter
-        else []
+        fetch_historical_klines(args.regime_symbol, args.regime_interval, args.start, args.end, args.category) if args.regime_filter else []
     )
     regime_timestamps, regime_values = build_regime_timeline(regime_candles, args)
     min_length = min(len(candles) for candles in candles_by_symbol.values())

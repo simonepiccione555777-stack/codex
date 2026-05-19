@@ -12,7 +12,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install quality tools
+        run: python -m pip install ruff
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
       - name: Compile Python files
-        run: python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py dashboard.py
+        run: python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py backtest_bybit_paper.py dashboard.py sweep_bybit_params.py
       - name: Generate dashboard from empty state
         run: python dashboard.py --state paper_state/missing.json --output dashboard.html

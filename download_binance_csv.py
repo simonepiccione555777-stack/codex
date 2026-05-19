@@ -4,11 +4,10 @@ import argparse
 import csv
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
-
 
 BASE_URL = "https://api.binance.com/api/v3/klines"
 
@@ -19,7 +18,7 @@ def to_millis(value: str) -> int:
 
 
 def from_millis(value: int) -> str:
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat().replace("+00:00", "Z")
 
 
 def fetch_klines(symbol: str, interval: str, start: str, end: str) -> list[list]:

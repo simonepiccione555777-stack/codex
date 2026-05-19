@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
-import socket
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
 from urllib.error import URLError
+from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from crypto_lab import Candle
-
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
 MAX_RETRIES = 3
@@ -24,7 +22,7 @@ def to_millis(value: str) -> int:
 
 
 def from_millis(value: int) -> str:
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat().replace("+00:00", "Z")
 
 
 def fetch_klines(
@@ -53,7 +51,7 @@ def fetch_klines(
             with urlopen(url, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             break
-        except (TimeoutError, socket.timeout, URLError) as exc:
+        except (TimeoutError, URLError) as exc:
             last_error = exc
             if attempt == MAX_RETRIES:
                 raise RuntimeError(f"Bybit API non raggiungibile dopo {MAX_RETRIES} tentativi: {exc}") from exc
