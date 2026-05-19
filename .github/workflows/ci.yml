@@ -19,6 +19,8 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
       - name: Compile Python files
-        run: python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py backtest_bybit_paper.py dashboard.py sweep_bybit_params.py
+        run: python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py backtest_bybit_paper.py dashboard.py sweep_bybit_params.py agent_healthcheck.py
       - name: Generate dashboard from empty state
         run: python dashboard.py --state paper_state/missing.json --output dashboard.html
+      - name: Agent healthcheck
+        run: python agent_healthcheck.py --state paper_state/missing.json --backtest runs/missing.json --dashboard dashboard.html --skip-ruff

@@ -21,6 +21,13 @@ This repository is a paper-trading crypto research lab for Bybit public market d
 
 - Use `rg` for search.
 - Keep edits scoped to the crypto project.
-- Run `python -m py_compile crypto_lab.py bybit_public.py download_bybit_csv.py paper_bybit.py backtest_bybit_paper.py dashboard.py sweep_bybit_params.py` after Python changes.
+- Run `python agent_healthcheck.py` after meaningful Python, dashboard, or strategy changes.
 - If practical, run a short backtest or paper step after strategy changes.
 - Before commits, check `git status --short` and stage only crypto project files relevant to the task.
+
+## Agent Hardening Loop
+
+- Treat `agent_healthcheck.py` as the local pre-flight checklist.
+- Keep the dashboard useful for humans first: live profit, risk state, six-month backtest, and per-trade PnL should stay visible.
+- If a parameter looks better on one period, verify it on a longer period before promoting it.
+- Do not optimize by hiding risk. If return improves while drawdown or trade sample quality worsens, report both.
