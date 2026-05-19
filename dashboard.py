@@ -181,12 +181,17 @@ def render_backtest(backtest: dict | None) -> str:
     return_pct = float(backtest.get("return_pct", 0))
     return_class = "positive" if return_pct >= 0 else "negative"
     profit_factor = backtest.get("profit_factor")
+    capital = float(backtest.get("capital", 0))
+    final_equity = float(backtest.get("final_equity", 0))
+    net_profit = final_equity - capital
+    profit_class = "positive" if net_profit >= 0 else "negative"
     return f"""
     <section>
       <h2>Backtest 6 Mesi</h2>
       <div class="muted">Periodo: {html.escape(backtest.get("start", ""))} -> {html.escape(backtest.get("end", ""))}</div>
       <div class="grid compact-grid">
-        <div class="metric"><span>Equity finale</span><strong>{money(float(backtest.get("final_equity", 0)))}</strong></div>
+        <div class="metric"><span>Equity finale</span><strong>{money(final_equity)}</strong></div>
+        <div class="metric"><span>Profitto netto</span><strong class="{profit_class}">{signed_money(net_profit)}</strong></div>
         <div class="metric"><span>Rendimento</span><strong class="{return_class}">{pct(return_pct)}</strong></div>
         <div class="metric"><span>Max drawdown</span><strong class="negative">{pct(float(backtest.get("max_drawdown_pct", 0)))}</strong></div>
         <div class="metric"><span>Trade</span><strong>{int(backtest.get("closed_trades", 0))}</strong></div>
@@ -216,6 +221,10 @@ def render_backtest(backtest: dict | None) -> str:
 def build_dashboard(state: dict, target: float, backtest: dict | None = None) -> str:
     cash = float(state.get("cash", 0))
     equity = estimate_equity(state)
+    start_capital = 100.0
+    net_profit = equity - start_capital
+    live_return = (equity / start_capital - 1) * 100 if start_capital else 0.0
+    target_gap = target - equity
     closed_pnl = sum(float(trade.get("pnl", 0)) for trade in state.get("trades", []))
     progress = max(0.0, min(equity / target, 1.0)) if target > 0 else 0.0
     positions = state.get("positions", {})
@@ -389,8 +398,10 @@ def build_dashboard(state: dict, target: float, backtest: dict | None = None) ->
     <div class="grid">
       <div class="metric"><span>Cassa</span><strong>{money(cash)}</strong></div>
       <div class="metric"><span>Equity stimata</span><strong>{money(equity)}</strong></div>
+      <div class="metric"><span>Profitto netto</span><strong class="{"positive" if net_profit >= 0 else "negative"}">{signed_money(net_profit)}</strong><small>{pct(live_return)} dal capitale iniziale</small></div>
       <div class="metric"><span>PNL chiuso</span><strong class="{"positive" if closed_pnl >= 0 else "negative"}">{signed_money(closed_pnl)}</strong></div>
       <div class="metric"><span>Target</span><strong>{money(target)}</strong><div class="progress"><div class="bar"></div></div></div>
+      <div class="metric"><span>Mancano al target</span><strong class="{"positive" if target_gap <= 0 else ""}">{money(max(target_gap, 0))}</strong></div>
       <div class="metric"><span>Trade chiusi</span><strong>{stats["count"]}</strong><small>{stats["wins"]} vincenti / {stats["losses"]} in perdita</small></div>
       <div class="metric"><span>Win rate</span><strong>{pct(stats["win_rate"])}</strong></div>
       <div class="metric"><span>Profit factor</span><strong>{"n/a" if stats["profit_factor"] is None else f"{stats['profit_factor']:.2f}"}</strong></div>
