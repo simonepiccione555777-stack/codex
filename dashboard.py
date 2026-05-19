@@ -169,6 +169,30 @@ def render_summary_rows(summary: dict) -> str:
     return "\n".join(rows)
 
 
+def render_backtest_trades(trades: list[dict]) -> str:
+    if not trades:
+        return '<tr><td colspan="9">Nessun trade nel backtest</td></tr>'
+
+    rows = []
+    for index, trade in enumerate(trades, start=1):
+        pnl = float(trade.get("pnl", 0))
+        pnl_class = "positive" if pnl >= 0 else "negative"
+        rows.append(
+            "<tr>"
+            f"<td>{index}</td>"
+            f"<td>{html.escape(trade.get('symbol', ''))}</td>"
+            f"<td>{html.escape(trade.get('side', 'LONG'))}</td>"
+            f"<td>{html.escape(trade.get('opened_at', ''))}</td>"
+            f"<td>{html.escape(trade.get('closed_at', ''))}</td>"
+            f"<td>{html.escape(trade.get('reason', ''))}</td>"
+            f"<td>{float(trade.get('entry', 0)):,.4f}</td>"
+            f"<td>{float(trade.get('exit', 0)):,.4f}</td>"
+            f'<td class="{pnl_class}">{signed_money(pnl)}</td>'
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
 def render_backtest(backtest: dict | None) -> str:
     if not backtest:
         return """
@@ -214,6 +238,11 @@ def render_backtest(backtest: dict | None) -> str:
           </table>
         </div>
       </div>
+      <h2>Trade Backtest 6 Mesi</h2>
+      <table>
+        <thead><tr><th>#</th><th>Symbol</th><th>Lato</th><th>Aperta</th><th>Chiusa</th><th>Motivo</th><th>Entry</th><th>Exit</th><th>Profitto</th></tr></thead>
+        <tbody>{render_backtest_trades(backtest.get("trades", []))}</tbody>
+      </table>
     </section>
 """
 

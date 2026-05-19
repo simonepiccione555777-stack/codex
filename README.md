@@ -77,7 +77,7 @@ python dashboard.py
 ```
 
 Poi apri `dashboard.html` nel browser.
-La dashboard mostra capitale, equity stimata, profitto netto, PnL chiuso, distanza dal target, stato rischio, posizioni aperte, ultimi trade, curva equity dei trade chiusi e riepilogo del backtest a 6 mesi se e' presente il report `runs/dashboard_backtest_6m.json`.
+La dashboard mostra capitale, equity stimata, profitto netto, PnL chiuso, distanza dal target, stato rischio, posizioni aperte, ultimi trade, curva equity dei trade chiusi, riepilogo del backtest a 6 mesi e singoli trade del backtest con profitto/perdita se e' presente il report `runs/dashboard_backtest_6m.json`.
 
 Puoi limitare la leva massima cosi:
 
