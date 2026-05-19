@@ -27,7 +27,13 @@ class PaperPosition:
 
 
 def default_state(capital: float) -> dict:
-    return {"cash": capital, "positions": {}, "trades": [], "last_seen": {}, "risk": {"consecutive_stops": 0}}
+    return {
+        "cash": capital,
+        "positions": {},
+        "trades": [],
+        "last_seen": {},
+        "risk": {"consecutive_stops": 0, "equity_peak": capital, "daily": {}},
+    }
 
 
 def load_state(path: Path, capital: float) -> dict:
@@ -42,6 +48,14 @@ def save_state(path: Path, state: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, indent=2, sort_keys=True)
+
+
+def ensure_risk_state(state: dict, capital: float) -> dict:
+    risk_state = state.setdefault("risk", {})
+    risk_state.setdefault("consecutive_stops", 0)
+    risk_state.setdefault("equity_peak", capital)
+    risk_state.setdefault("daily", {})
+    return risk_state
 
 
 def latest_signal(candles, args: argparse.Namespace) -> tuple[str, dict]:
@@ -236,6 +250,27 @@ def in_cooldown(risk_state: dict, timestamp: str) -> bool:
     return True
 
 
+def risk_blocked(state: dict, timestamp: str, equity: float, args: argparse.Namespace) -> str:
+    risk_state = ensure_risk_state(state, args.capital)
+    risk_state["equity_peak"] = max(float(risk_state.get("equity_peak", args.capital)), equity)
+    peak = float(risk_state["equity_peak"])
+    drawdown = (peak - equity) / peak if peak else 0.0
+    if drawdown >= args.max_equity_drawdown:
+        risk_state["cooldown_until"] = add_hours(timestamp, args.drawdown_cooldown_hours)
+        return f"drawdown {drawdown * 100:.2f}%"
+
+    day = timestamp[:10]
+    daily = risk_state.setdefault("daily", {})
+    day_state = daily.setdefault(day, {"start_equity": equity})
+    start_equity = float(day_state.get("start_equity", equity))
+    daily_loss = (start_equity - equity) / start_equity if start_equity else 0.0
+    if daily_loss >= args.max_daily_loss:
+        risk_state["cooldown_until"] = add_hours(timestamp, args.daily_loss_cooldown_hours)
+        return f"perdita giornaliera {daily_loss * 100:.2f}%"
+
+    return ""
+
+
 def open_risk_fraction(state: dict) -> float:
     return sum(float(position.get("risk_fraction", 0)) for position in state.get("positions", {}).values())
 
@@ -255,7 +290,7 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
     price = info["close"]
     atr_value = info["atr"]
     state["last_seen"][symbol] = timestamp
-    risk_state = state.setdefault("risk", {"consecutive_stops": 0})
+    risk_state = ensure_risk_state(state, args.capital)
 
     raw_position = state["positions"].get(symbol)
     if raw_position:
@@ -284,6 +319,10 @@ def paper_step(state: dict, symbol: str, args: argparse.Namespace) -> str:
 
     if signal not in {"BUY", "SHORT"} or atr_value is None:
         return f"{symbol}: nessuna apertura, segnale {signal}, prezzo {price:.4f}."
+
+    block_reason = risk_blocked(state, timestamp, portfolio_value(state, {symbol: price}), args)
+    if block_reason:
+        return f"{symbol}: segnale ignorato, protezione attiva per {block_reason}."
 
     if in_cooldown(risk_state, timestamp):
         return f"{symbol}: BUY ignorato, pausa dopo stop consecutivi."
@@ -370,6 +409,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lookback", type=int, default=200)
     parser.add_argument("--risk", type=float, default=0.02)
     parser.add_argument("--max-open-risk", type=float, default=0.10)
+    parser.add_argument("--max-equity-drawdown", type=float, default=0.35)
+    parser.add_argument("--drawdown-cooldown-hours", type=int, default=24)
+    parser.add_argument("--max-daily-loss", type=float, default=0.18)
+    parser.add_argument("--daily-loss-cooldown-hours", type=int, default=24)
     parser.add_argument("--correlated-risk-multiplier", type=float, default=0.5)
     parser.add_argument("--stop-cooldown-after", type=int, default=2)
     parser.add_argument("--cooldown-hours", type=int, default=24)
@@ -419,6 +462,10 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
     if args.profile == "moonshot":
         args.risk = 0.08
         args.max_open_risk = 0.12
+        args.max_equity_drawdown = 0.25
+        args.drawdown_cooldown_hours = 48
+        args.max_daily_loss = 0.14
+        args.daily_loss_cooldown_hours = 24
         args.correlated_risk_multiplier = 0.4
         args.stop_cooldown_after = 2
         args.cooldown_hours = 24

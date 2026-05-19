@@ -15,11 +15,20 @@ from paper_bybit import (
     in_cooldown,
     latest_signal,
     portfolio_value,
+    risk_blocked,
     update_trailing_stop,
 )
 
 
-def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argparse.Namespace, regime: dict | None = None) -> str | None:
+def run_symbol_step(
+    state: dict,
+    symbol: str,
+    history: list,
+    candle,
+    args: argparse.Namespace,
+    regime: dict | None = None,
+    prices: dict[str, float] | None = None,
+) -> str | None:
     signal, info = latest_signal(history, args)
     timestamp = info["timestamp"]
     price = info["close"]
@@ -53,6 +62,9 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
         return None
 
     if signal not in {"BUY", "SHORT"} or atr_value is None:
+        return None
+
+    if risk_blocked(state, timestamp, portfolio_value(state, prices or {symbol: price}), args):
         return None
 
     if in_cooldown(risk_state, timestamp):
@@ -115,6 +127,40 @@ def run_symbol_step(state: dict, symbol: str, history: list, candle, args: argpa
     return f"{timestamp} {symbol} OPEN_{side} {leverage:.1f}x entry={entry:.4f} margin={margin:.2f}"
 
 
+def bucket_key(timestamp: str, size: str) -> str:
+    if size == "month":
+        return timestamp[:7]
+    return timestamp[:10]
+
+
+def summarize_trades(trades: list[dict], key_name: str) -> dict:
+    summary: dict[str, dict] = {}
+    for trade in trades:
+        key = str(trade.get(key_name, "UNKNOWN"))
+        row = summary.setdefault(key, {"trades": 0, "wins": 0, "pnl": 0.0})
+        row["trades"] += 1
+        row["wins"] += 1 if trade["pnl"] > 0 else 0
+        row["pnl"] += trade["pnl"]
+    for row in summary.values():
+        row["win_rate_pct"] = (row["wins"] / row["trades"] * 100) if row["trades"] else 0.0
+        row["pnl"] = round(row["pnl"], 4)
+    return dict(sorted(summary.items()))
+
+
+def summarize_periods(trades: list[dict], period: str = "month") -> dict:
+    summary: dict[str, dict] = {}
+    for trade in trades:
+        key = bucket_key(trade["closed_at"], period)
+        row = summary.setdefault(key, {"trades": 0, "wins": 0, "pnl": 0.0})
+        row["trades"] += 1
+        row["wins"] += 1 if trade["pnl"] > 0 else 0
+        row["pnl"] += trade["pnl"]
+    for row in summary.values():
+        row["win_rate_pct"] = (row["wins"] / row["trades"] * 100) if row["trades"] else 0.0
+        row["pnl"] = round(row["pnl"], 4)
+    return dict(sorted(summary.items()))
+
+
 def regime_at(timestamp: str, regime_candles: list, args: argparse.Namespace) -> dict:
     if not args.regime_filter:
         return {"name": "OFF", "long_allowed": True, "short_allowed": True}
@@ -150,7 +196,7 @@ def run_backtest(args: argparse.Namespace) -> dict:
             candle = candles[idx]
             prices[symbol] = candle.close
             regime = regime_at(candle.timestamp, regime_candles, args)
-            event = run_symbol_step(state, symbol, history, candle, args, regime)
+            event = run_symbol_step(state, symbol, history, candle, args, regime, prices)
             if event:
                 events.append(event)
         equity_curve.append(portfolio_value(state, prices))
@@ -181,6 +227,10 @@ def run_backtest(args: argparse.Namespace) -> dict:
         "open_positions": state["positions"],
         "win_rate_pct": (len(wins) / len(trades) * 100) if trades else 0.0,
         "profit_factor": gross_win / gross_loss if gross_loss else None,
+        "monthly": summarize_periods(trades, "month"),
+        "by_symbol": summarize_trades(trades, "symbol"),
+        "by_side": summarize_trades(trades, "side"),
+        "by_exit_reason": summarize_trades(trades, "reason"),
         "events": events,
         "trades": trades,
         "state": state,
@@ -200,6 +250,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lookback", type=int, default=200)
     parser.add_argument("--risk", type=float, default=0.02)
     parser.add_argument("--max-open-risk", type=float, default=0.10)
+    parser.add_argument("--max-equity-drawdown", type=float, default=0.35)
+    parser.add_argument("--drawdown-cooldown-hours", type=int, default=24)
+    parser.add_argument("--max-daily-loss", type=float, default=0.18)
+    parser.add_argument("--daily-loss-cooldown-hours", type=int, default=24)
     parser.add_argument("--correlated-risk-multiplier", type=float, default=0.5)
     parser.add_argument("--stop-cooldown-after", type=int, default=2)
     parser.add_argument("--cooldown-hours", type=int, default=24)
@@ -250,6 +304,10 @@ def apply_profile(args: argparse.Namespace) -> argparse.Namespace:
     if args.profile == "moonshot":
         args.risk = 0.08
         args.max_open_risk = 0.12
+        args.max_equity_drawdown = 0.25
+        args.drawdown_cooldown_hours = 48
+        args.max_daily_loss = 0.14
+        args.daily_loss_cooldown_hours = 24
         args.correlated_risk_multiplier = 0.4
         args.stop_cooldown_after = 2
         args.cooldown_hours = 24
@@ -297,6 +355,18 @@ def main() -> None:
     profit_factor = result["profit_factor"]
     print(f"Profit factor: {'n/a' if profit_factor is None else f'{profit_factor:.2f}'}")
     print(f"Posizioni aperte finali: {len(result['open_positions'])}")
+    print("")
+    print("Sintesi per mese:")
+    for period, row in result["monthly"].items():
+        print(f"{period}: trade={row['trades']} win={row['win_rate_pct']:.1f}% pnl={row['pnl']:.2f}")
+    print("")
+    print("Sintesi per lato:")
+    for side, row in result["by_side"].items():
+        print(f"{side}: trade={row['trades']} win={row['win_rate_pct']:.1f}% pnl={row['pnl']:.2f}")
+    print("")
+    print("Sintesi per uscita:")
+    for reason, row in result["by_exit_reason"].items():
+        print(f"{reason}: trade={row['trades']} win={row['win_rate_pct']:.1f}% pnl={row['pnl']:.2f}")
     print("")
     print("Eventi:")
     for event in result["events"][-30:]:

@@ -67,6 +67,8 @@ Il profilo include anche freni di rischio:
 - pausa di 24 ore dopo 2 stop consecutivi;
 - se la leva supera 25x, rischio effettivo massimo 5% sul trade.
 - filtro regime BTCUSDT 4H: long moonshot solo in regime rialzista, short solo in regime ribassista.
+- protezione da drawdown: se l'equity scende troppo dal massimo, il sistema mette in pausa nuove aperture;
+- protezione giornaliera: se la perdita del giorno supera la soglia, il sistema evita nuovi ingressi fino al giorno successivo.
 
 Genera una dashboard locale:
 
@@ -125,6 +127,8 @@ Backtest 6 mesi con filtro regime:
 ```powershell
 python backtest_bybit_paper.py --profile moonshot --allow-short --start 2025-11-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/backtest_moonshot_regime_6m.json
 ```
+
+Il report del backtest mostra anche sintesi per mese, lato long/short e motivo di uscita. Questo serve a capire se la strategia sta guadagnando per vera qualita' del setup o solo per pochi trade fortunati.
 
 Esempio con parametri piu aggressivi:
 
