@@ -130,6 +130,15 @@ python backtest_bybit_paper.py --profile moonshot --allow-short --start 2025-11-
 
 Il report del backtest mostra anche sintesi per mese, lato long/short e motivo di uscita. Questo serve a capire se la strategia sta guadagnando per vera qualita' del setup o solo per pochi trade fortunati.
 
+Puoi confrontare diverse combinazioni di filtro regime, stop, take profit e protezioni cosi:
+
+```powershell
+python sweep_bybit_params.py --start 2025-11-18T00:00:00Z --end 2026-05-18T00:00:00Z --output runs/sweep_moonshot_6m.json
+```
+
+Il ranking non cerca solo il rendimento massimo: penalizza drawdown alto e campioni con pochi trade, cosi evita di premiare configurazioni troppo fragili.
+Di default prova 6 combinazioni rapide. Per una ricerca piu' ampia puoi aggiungere `--wide` oppure `--deep`, ma richiedono piu' tempo.
+
 Esempio con parametri piu aggressivi:
 
 ```powershell

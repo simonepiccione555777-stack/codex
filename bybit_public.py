@@ -15,6 +15,7 @@ from crypto_lab import Candle
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
 MAX_RETRIES = 3
+_HISTORICAL_CACHE: dict[tuple[str, str, str, str, str], list[Candle]] = {}
 
 
 def to_millis(value: str) -> int:
@@ -86,6 +87,10 @@ def fetch_historical_klines(
     end: str,
     category: str = "spot",
 ) -> list[Candle]:
+    cache_key = (symbol.upper(), interval, start, end, category)
+    if cache_key in _HISTORICAL_CACHE:
+        return list(_HISTORICAL_CACHE[cache_key])
+
     start_ms = to_millis(start)
     current_end_ms = to_millis(end)
     all_candles: list[Candle] = []
@@ -110,7 +115,9 @@ def fetch_historical_klines(
         time.sleep(0.15)
 
     unique = {candle.timestamp: candle for candle in all_candles}
-    return [unique[key] for key in sorted(unique)]
+    result = [unique[key] for key in sorted(unique)]
+    _HISTORICAL_CACHE[cache_key] = result
+    return list(result)
 
 
 def save_csv(candles: list[Candle], output: Path) -> None:

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_right
 import json
 from dataclasses import asdict
 from pathlib import Path
 
 from bybit_public import fetch_historical_klines
+from crypto_lab import ema
 from paper_bybit import (
     PaperPosition,
     choose_leverage,
-    classify_regime,
     close_position,
     default_state,
     in_cooldown,
@@ -161,14 +162,46 @@ def summarize_periods(trades: list[dict], period: str = "month") -> dict:
     return dict(sorted(summary.items()))
 
 
-def regime_at(timestamp: str, regime_candles: list, args: argparse.Namespace) -> dict:
+def build_regime_timeline(regime_candles: list, args: argparse.Namespace) -> tuple[list[str], list[dict]]:
+    if not args.regime_filter:
+        return [], []
+
+    closes = [candle.close for candle in regime_candles]
+    fast = ema(closes, args.regime_fast_ema)
+    slow = ema(closes, args.regime_slow_ema)
+    timestamps: list[str] = []
+    regimes: list[dict] = []
+
+    for idx, candle in enumerate(regime_candles):
+        timestamps.append(candle.timestamp)
+        if idx < 1 or fast[idx] is None or slow[idx] is None or fast[idx - 1] is None:
+            regimes.append({"name": "UNKNOWN", "long_allowed": False, "short_allowed": False})
+            continue
+
+        price = closes[idx]
+        fast_rising = fast[idx] >= fast[idx - 1]
+        bull = price > slow[idx] and fast[idx] > slow[idx] and fast_rising
+        bear = price < slow[idx] and fast[idx] < slow[idx] and not fast_rising
+
+        if bull:
+            regimes.append({"name": "BULL", "long_allowed": True, "short_allowed": False})
+        elif bear:
+            regimes.append({"name": "BEAR", "long_allowed": False, "short_allowed": True})
+        else:
+            regimes.append({"name": "NEUTRAL", "long_allowed": False, "short_allowed": False})
+
+    return timestamps, regimes
+
+
+def regime_at(timestamp: str, regime_timestamps: list[str], regime_values: list[dict], args: argparse.Namespace) -> dict:
     if not args.regime_filter:
         return {"name": "OFF", "long_allowed": True, "short_allowed": True}
-
-    history = [candle for candle in regime_candles if candle.timestamp <= timestamp]
-    if len(history) < args.regime_slow_ema + 2:
+    if not regime_timestamps:
         return {"name": "UNKNOWN", "long_allowed": False, "short_allowed": False}
-    return classify_regime(history, args)
+    idx = bisect_right(regime_timestamps, timestamp) - 1
+    if idx < 0:
+        return {"name": "UNKNOWN", "long_allowed": False, "short_allowed": False}
+    return regime_values[idx]
 
 
 def run_backtest(args: argparse.Namespace) -> dict:
@@ -181,6 +214,7 @@ def run_backtest(args: argparse.Namespace) -> dict:
         if args.regime_filter
         else []
     )
+    regime_timestamps, regime_values = build_regime_timeline(regime_candles, args)
     min_length = min(len(candles) for candles in candles_by_symbol.values())
     if min_length < max(args.lookback, args.slow_ema, args.atr_period, args.rsi_period) + 5:
         raise SystemExit("Dati insufficienti per il periodo richiesto.")
@@ -195,7 +229,7 @@ def run_backtest(args: argparse.Namespace) -> dict:
             history = candles[: idx + 1]
             candle = candles[idx]
             prices[symbol] = candle.close
-            regime = regime_at(candle.timestamp, regime_candles, args)
+            regime = regime_at(candle.timestamp, regime_timestamps, regime_values, args)
             event = run_symbol_step(state, symbol, history, candle, args, regime, prices)
             if event:
                 events.append(event)
